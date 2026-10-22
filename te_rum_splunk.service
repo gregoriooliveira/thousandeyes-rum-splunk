@@ -1,0 +1,14 @@
+[Unit]
+Description=ThousandEyes Real User (browser sessions) para Splunk HEC
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=te_rum
+EnvironmentFile=/etc/te_rum_splunk.env
+ExecStart=/usr/bin/python3 /opt/te_rum_splunk/te_rum_splunk.py
+TimeoutStartSec=240
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/te_rum_splunk
