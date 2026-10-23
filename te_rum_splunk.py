@@ -63,6 +63,28 @@ def te(method, path, params=None, body=None):
     return out
 
 
+def epoch(quando):
+    """Data ISO 8601 da API (ex.: 2026-10-23T13:14:06.65+00:00 ou ...Z) em epoch; aceita Python < 3.11."""
+    if not quando:
+        return time.time()
+    s = quando.strip().replace("Z", "+00:00")
+    base, fuso = s[:19], s[19:]
+    frac = 0.0
+    if fuso.startswith("."):
+        i = 1
+        while i < len(fuso) and fuso[i].isdigit():
+            i += 1
+        frac, fuso = float("0" + fuso[:i]), fuso[i:]
+    dt = datetime.strptime(base, "%Y-%m-%dT%H:%M:%S")
+    if fuso:
+        sinal = -1 if fuso[0] == "-" else 1
+        hh, mm = fuso[1:].replace(":", "")[:2], fuso[1:].replace(":", "")[2:4] or "0"
+        dt = dt.replace(tzinfo=timezone(sinal * timedelta(hours=int(hh), minutes=int(mm))))
+    else:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp() + frac
+
+
 def servico(url):
     u = (url or "").lower()
     for trecho, nome in SERVICE_MAP:
@@ -86,7 +108,7 @@ def main():
             sys.exit(f"variável {n} não definida")
     agora = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=2)
     try:
-        inicio = datetime.fromisoformat(json.load(open(STATE_FILE))["fim"])
+        inicio = datetime.fromtimestamp(epoch(json.load(open(STATE_FILE))["fim"]), timezone.utc)
     except (OSError, ValueError, KeyError):
         inicio = agora - timedelta(minutes=15)
     inicio = max(inicio, agora - MAX_JANELA)
@@ -113,8 +135,7 @@ def main():
               "pageUrl": p.get("pageUrl"), "responseCode": p.get("responseCode"), "responseTime": p.get("responseTime"),
               "onContentLoad": t.get("onContentLoad"), "onLoad": t.get("onLoad"), "loadDate": p.get("loadDate"),
               "cpuMax": ((p.get("systemMetrics") or {}).get("cpuUtilization") or {}).get("max")}
-        quando = p.get("loadDate") or s.get("date")
-        eventos.append({"time": datetime.fromisoformat(quando.replace("Z", "+00:00")).timestamp() if quando else time.time(),
+        eventos.append({"time": epoch(p.get("loadDate") or s.get("date")),
                         "index": HEC_INDEX, "sourcetype": "cisco:thousandeyes:rum", "source": "te_rum_splunk",
                         "host": a.get("agentName") or a.get("name") or "thousandeyes", "event": {k: v for k, v in ev.items() if v is not None}})
     for sid, s in sessoes.items():  # sessão sem página detalhada ainda: grava a sessão
@@ -124,8 +145,7 @@ def main():
         ev = {"tipo": "sessao", "servico": servico(s.get("visitedSite")), "agentId": s.get("agentId"), "agentName": a.get("agentName") or a.get("name"),
               "computerName": a.get("computerName"), "sourceAddress": s.get("sourceAddress"), "visitedSite": s.get("visitedSite"),
               "experienceScore": s.get("experienceScore"), "numberOfPages": s.get("numberOfPages"), "sessionId": sid, "roundId": s.get("roundId")}
-        quando = s.get("date")
-        eventos.append({"time": datetime.fromisoformat(quando.replace("Z", "+00:00")).timestamp() if quando else time.time(),
+        eventos.append({"time": epoch(s.get("date")),
                         "index": HEC_INDEX, "sourcetype": "cisco:thousandeyes:rum", "source": "te_rum_splunk",
                         "host": a.get("agentName") or a.get("name") or "thousandeyes", "event": {k: v for k, v in ev.items() if v is not None}})
     if eventos:
